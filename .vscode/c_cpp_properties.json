@@ -1,0 +1,25 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/usr/include",
+                "/usr/local/include",
+                "/usr/lib/gcc/x86_64-linux-gnu/9/include",
+                "/usr/include/x86_64-linux-gnu",
+                "/usr/local/pcl-1.9/include/pcl-1.9",
+                "/usr/include/eigen3",
+                "/opt/ros/noetic/include",
+                "/usr/local/include/vtk-8.2"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "clang-x64",
+            "compileCommands": ""
+        }
+    ],
+    "version": 4
+}
