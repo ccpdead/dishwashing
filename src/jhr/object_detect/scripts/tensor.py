@@ -3,6 +3,7 @@ import csv
 import cv2
 import numpy as np
 import tensorflow as tf
+import pandas as pd
 
 import rospy
 from sensor_msgs.msg import Image
@@ -55,52 +56,58 @@ def xywh2xyxy(x):
 
 def img_show(Rect, src):
     if src is not None:
-        with open(csv_file, mode='w', newline="") as file:
-            writer = csv.writer(file)
-            for i in range(len(Rect)):
+        x = Rect[:, 0]
+        y = Rect[:, 1]
+        x2 = Rect[:, 2]
+        y2 = Rect[:, 3]
+        c = Rect[:, -1]
+        p = Rect[:, -2]
+        dict = {"x": x, "y": y, "x2": x2, "y2": y2, "c": c, "p": p}
+        df = pd.DataFrame(dict)
+        df.to_csv(csv_file)
 
-                x = int(Rect[i, 0])
-                y = int(Rect[i, 1])
-                x2 = int(Rect[i, 2])
-                y2 = int(Rect[i, 3])
-                c = name[int(Rect[i, -1])]
-                p = int(Rect[i, -2])
-                data = [x, y, x2, y2, c, p]
-                writer.writerow(data)
+        for i in range(len(Rect)):
 
-                roi = src[y:y2, x:x2]
-                # 绘制圆心
+            x = int(Rect[i, 0])
+            y = int(Rect[i, 1])
+            x2 = int(Rect[i, 2])
+            y2 = int(Rect[i, 3])
+
+            # 绘制圆
+            radius = min(int((x2-x)/2), int((y2-y)/2))
+            for r in range(1, 7, 1):
                 cv2.circle(src,
                            (int((x+x2)/2), int((y+y2)/2)),
-                           3,
+                           (int(radius/6)*r),
                            (0, 255, 0),
-                           -1)
-                # 绘制矩形框
-                cv2.rectangle(src, (x, y), (x2, y2), (0, 255, 0), 2)
-                # 显示类别
-                cv2.putText(src,
-                            name[int(Rect[i, -1])],
-                            (x, y - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.7,
-                            (0, 0, 255),
-                            2,
-                            cv2.LINE_4)
-                # 显示概率
-                cv2.putText(src,
-                            "{:.2}%".format(Rect[i, -2]),
-                            (x, y - 25),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.6,
-                            (0, 255, 255),
-                            2,
-                            cv2.LINE_4)
+                           1)
+            # 绘制矩形框
+            cv2.rectangle(src, (x, y), (x2, y2), (0, 255, 0), 2)
+            # 显示类别
+            cv2.putText(src,
+                        name[int(Rect[i, -1])],
+                        (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 0, 255),
+                        2,
+                        cv2.LINE_4)
+            # 显示概率
+            cv2.putText(src,
+                        "{:.2}%".format(Rect[i, -2]),
+                        (x, y - 25),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 255, 255),
+                        2,
+                        cv2.LINE_4)
 
-                # cv2.imshow("{}".format(i), roi)
-            cv2.imshow("object_detect", src)
-            cv2.imwrite("/home/jhr/depth_image2.png",src)
+            # cv2.imshow("{}".format(i), roi)
+        cv2.imshow("object_detect", src)
+        cv2.imwrite("/home/jhr/depth_image2.png", src)
 
-            cv2.waitKey(1)
+        cv2.waitKey(1)
+
     else:
         print("Failed to load image .")
 
