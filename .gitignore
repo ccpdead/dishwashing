@@ -3,3 +3,4 @@ devel
 berxel_camera_ros1
 dev-ros
 .catkin_workspace
+model/
