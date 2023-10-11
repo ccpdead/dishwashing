@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import tensorflow as tf
 import pandas as pd
+import threading
 
 import rospy
 from sensor_msgs.msg import Image
@@ -24,6 +25,9 @@ new_model = tf.saved_model.load(
 model_signature = new_model.signatures["serving_default"]
 
 depth_image = None
+# 创建锁对象，用于同步访问全局图像变量
+image_lock = threading.Lock()
+depth_lock = threading.Lock()
 
 # 图像加载与模型检测
 
@@ -54,17 +58,25 @@ def xywh2xyxy(x):
 # 正反检测
 
 
-def Positive_negative_detection(Rect, src):
-    if src is not None:
+def Positive_negative_detection(Rect, input_src):
+    if input_src is not None:
         for i in range(len(Rect)):
             if int(Rect[i, -1]) == 2 or int(Rect[i, -1]) == 3:
                 x = int(Rect[i, 0])
                 y = int(Rect[i, 1])
                 x2 = int(Rect[i, 2])
                 y2 = int(Rect[i, 3])
+
+                src = input_src[y:y2, x:x2]
+                # cv2.imshow("src",src)
+                # cv2.imshow("input_src",input_src)
+
+                # 创建掩膜
                 mask = np.zeros_like(src, dtype=np.uint8)
                 mask2 = np.zeros_like(src, dtype=np.uint8)
-                cv2.rectangle(src, (x, y), (x2, y2), (0, 255, 0), 1)
+
+                # 计算最小圆心
+                h, w = src.shape
                 com1 = int((x2 - x) / 2)
                 com2 = int((y2 - y) / 2)
                 if com1 >= com2:
@@ -74,13 +86,13 @@ def Positive_negative_detection(Rect, src):
 
                 # 绘制外部圆
                 cv2.circle(mask2,
-                           (int((x+x2)/2), int((y+y2)/2)),
+                           (int(w/2), int(h/2)),
                            int(radius/6)*6,
                            (255, 255, 255),
                            -1)
                 # 绘制内部圆
                 cv2.circle(mask,
-                           (int((x+x2)/2), int((y+y2)/2)),
+                           (int(w/2), int(h/2)),
                            int(radius/6)*3,
                            (255, 255, 255),
                            -1)
@@ -89,13 +101,13 @@ def Positive_negative_detection(Rect, src):
                 mask2 = mask2-mask  # 对像素进行算术运算
                 mask_image2 = cv2.bitwise_and(src, mask2)
 
-                height, width = mask_image.shape
+                # 计算内环像素平均值
                 max = mask_image.max()
                 min = mask_image.min()
                 count = 0
                 dep_sum = 0
-                for y in range(height):
-                    for x in range(width):
+                for y in range(h):
+                    for x in range(w):
                         dep = mask_image[y, x]
                         if dep > min and dep < max:
                             dep_sum += dep
@@ -106,13 +118,13 @@ def Positive_negative_detection(Rect, src):
                 else:
                     print("no data")
 
-                height, width = mask_image2.shape
+                # 计算外环平均值
                 max = mask_image2.max()
                 min = mask_image2.min()
                 count = 0
                 dep_sum = 0
-                for y in range(height):
-                    for x in range(width):
+                for y in range(h):
+                    for x in range(w):
                         dep = mask_image2[y, x]
                         if dep > min and dep < max:
                             dep_sum += dep
@@ -124,12 +136,16 @@ def Positive_negative_detection(Rect, src):
                     print("no data")
 
                 if input < output:
-                    cv2.putText(src, "back", (int(Rect[i, 0]), int(
+                    cv2.putText(input_src, "back", (int(Rect[i, 0]), int(
                         Rect[i, 1])), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv2.LINE_4)
                 else:
-                    cv2.putText(src, "forward", (int(Rect[i, 0]), int(
+                    cv2.putText(input_src, "forward", (int(Rect[i, 0]), int(
                         Rect[i, 1])), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv2.LINE_4)
-        cv2.imshow("Positive_negative_detection", src)
+
+                cv2.rectangle(input_src, (int(Rect[i, 0]), int(Rect[i, 1])), (int(
+                    Rect[i, 2]), int(Rect[i, 3])), (0, 255, 0), 1)
+
+        cv2.imshow("Positive_negative_detection", input_src)
         cv2.waitKey(1)
     else:
         print("depth is Zero")
@@ -176,14 +192,13 @@ def img_show(Rect, src):
                         cv2.LINE_4)
         cv2.imshow("object_detect", src)
         cv2.waitKey(1)
-
     else:
         print("rgb is Zero")
 
 # 非极大值抑制
 
 
-def non_max_suppression(resout, frame, conf_thres=0.6, iou_thres=0.7, mi=10):
+def non_max_suppression(resout, frame, depth, conf_thres=0.6, iou_thres=0.7, mi=10):
     max_wh = 7680
     max_nms = 30000
     max_det = 300
@@ -215,18 +230,19 @@ def non_max_suppression(resout, frame, conf_thres=0.6, iou_thres=0.7, mi=10):
         i = i[:max_det]  # limit detections
         output[xi] = tf.gather(x, i)
     img_show(output[0], frame)  # 显示图像
-    # Positive_negative_detection(output[0], depth_image)
+    Positive_negative_detection(output[0], depth)
 
 
 def image_callback(msg):
     try:
+        depth_input = depth_image
         # 使用cv_bridge将ROS图像消息转换为OpenCV格式
         bridge = CvBridge()
         cv_image = bridge.imgmsg_to_cv2(msg, "bgr8")
         frame = cv2.resize(cv_image, (640, 400),
                            interpolation=cv2.INTER_LINEAR)
         resout = compute(frame)  # 模型预测
-        non_max_suppression(resout, frame)  # 非极大值抑制
+        non_max_suppression(resout, frame, depth_input)  # 非极大值抑制
     except Exception as e:
         rospy.logerr(e)
 
@@ -249,9 +265,11 @@ def depth_callback(msg):
 def main():
     rospy.init_node("tensor_detect", anonymous=True)
     rospy.Subscriber("/berxel_camera/rgb/rgb_raw", Image,
-                     image_callback,)
+                     image_callback,
+                     buff_size=30)
     rospy.Subscriber("/berxel_camera/depth/depth_raw",
-                     Image, depth_callback,)
+                     Image, depth_callback,
+                     buff_size=30)
     rospy.spin()
     cv2.destroyAllWindows()
 
