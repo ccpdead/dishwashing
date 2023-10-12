@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 import pandas as pd
 import threading
+import time
 
 import rospy
 from sensor_msgs.msg import Image
@@ -24,15 +25,15 @@ new_model = tf.saved_model.load(
     "/home/jhr/Program/TensorFlow/00-model/model/last_saved_model-3")
 model_signature = new_model.signatures["serving_default"]
 
-depth_image = None
+depth_image = np.zeros_like((640, 400), dtype=np.uint8)
 # 创建锁对象，用于同步访问全局图像变量
-image_lock = threading.Lock()
-depth_lock = threading.Lock()
-
+rgb_time=0
+depth_time = None
 # 图像加载与模型检测
 
 
 def compute(img):
+    # start_time = time.time()
     img = tf.convert_to_tensor(img, dtype=tf.float32)
     img = tf.image.resize(img, [640, 640])
     img = img / 255.0
@@ -42,6 +43,9 @@ def compute(img):
     resout = resout["output_0"]
     resout = np.array(resout)
     resout[0][..., :4] *= [640, 400, 640, 400]
+    # end_time = time.time()
+    # execution_time = end_time - start_time
+    # print(f"compute time:{execution_time}")
     return resout
 
 # 矩阵计算
@@ -59,6 +63,7 @@ def xywh2xyxy(x):
 
 
 def Positive_negative_detection(Rect, input_src):
+
     if input_src is not None:
         for i in range(len(Rect)):
             if int(Rect[i, -1]) == 2 or int(Rect[i, -1]) == 3:
@@ -68,8 +73,6 @@ def Positive_negative_detection(Rect, input_src):
                 y2 = int(Rect[i, 3])
 
                 src = input_src[y:y2, x:x2]
-                # cv2.imshow("src",src)
-                # cv2.imshow("input_src",input_src)
 
                 # 创建掩膜
                 mask = np.zeros_like(src, dtype=np.uint8)
@@ -106,15 +109,12 @@ def Positive_negative_detection(Rect, input_src):
                 min = mask_image.min()
                 count = 0
                 dep_sum = 0
-                for y in range(h):
-                    for x in range(w):
-                        dep = mask_image[y, x]
-                        if dep > min and dep < max:
-                            dep_sum += dep
-                            count += 1
+
+                mask = (mask_image > min) & (mask_image < max)
+                dep_sum = np.sum(mask_image[mask])
+                count = np.sum(mask)
                 if count > 0:
                     input = int(dep_sum / count)
-                    # print("input:{}".format(input))
                 else:
                     print("no data")
 
@@ -123,15 +123,13 @@ def Positive_negative_detection(Rect, input_src):
                 min = mask_image2.min()
                 count = 0
                 dep_sum = 0
-                for y in range(h):
-                    for x in range(w):
-                        dep = mask_image2[y, x]
-                        if dep > min and dep < max:
-                            dep_sum += dep
-                            count += 1
+
+                mask = (mask_image2 > min) & (mask_image2 < max)
+                dep_sum = np.sum(mask_image2[mask])
+                count = np.sum(mask)
+
                 if count > 0:
                     output = int(dep_sum / count)
-                    # print("output:{}".format(output))
                 else:
                     print("no data")
 
@@ -146,7 +144,6 @@ def Positive_negative_detection(Rect, input_src):
                     Rect[i, 2]), int(Rect[i, 3])), (0, 255, 0), 1)
 
         cv2.imshow("Positive_negative_detection", input_src)
-        cv2.waitKey(1)
     else:
         print("depth is Zero")
 
@@ -230,25 +227,41 @@ def non_max_suppression(resout, frame, depth, conf_thres=0.6, iou_thres=0.7, mi=
         i = i[:max_det]  # limit detections
         output[xi] = tf.gather(x, i)
     img_show(output[0], frame)  # 显示图像
-    Positive_negative_detection(output[0], depth)
+    thread1=threading.Thread(target=Positive_negative_detection(output[0],depth))
+    thread1.start()
+    thread1.join()
+    # start_time = time.time()
+    # Positive_negative_detection(output[0], depth)
+    # time.sleep(0.001*30)
+    # end_time = time.time()
+    # execution_time = end_time - start_time
+    # print(f"detection time:{execution_time}")
 
 
 def image_callback(msg):
     try:
-        depth_input = depth_image
+        start_time = time.time()
+        depth_input = np.copy(depth_image)
         # 使用cv_bridge将ROS图像消息转换为OpenCV格式
         bridge = CvBridge()
-        cv_image = bridge.imgmsg_to_cv2(msg, "bgr8")
+        cv_image = bridge.imgmsg_to_cv2(msg, "passthrough")
         frame = cv2.resize(cv_image, (640, 400),
                            interpolation=cv2.INTER_LINEAR)
         resout = compute(frame)  # 模型预测
         non_max_suppression(resout, frame, depth_input)  # 非极大值抑制
+
+        end_time = time.time()
+        execution_time = end_time - start_time
+        global rgb_time
+        rgb_time = execution_time
+        # print(f"image_callback time:{execution_time}")
     except Exception as e:
         rospy.logerr(e)
 
 
 def depth_callback(msg):
     try:
+        start_time = time.time()
         bridge = CvBridge()
         cv_image = bridge.imgmsg_to_cv2(msg, "passthrough")
         # 将深度图像从浮点数类型转换为8位无符号整数类型
@@ -257,7 +270,11 @@ def depth_callback(msg):
         global depth_image
         depth_image = cv_image
         cv2.imshow("input_depth", cv_image)
-        cv2.waitKey(1)
+
+        end_time = time.time()
+        execution_time = end_time - start_time
+        time.sleep(rgb_time-execution_time-0.05)
+        # print(f"depth_callback time:{execution_time}")
     except Exception as e:
         rospy.logerr(e)
 
@@ -265,11 +282,9 @@ def depth_callback(msg):
 def main():
     rospy.init_node("tensor_detect", anonymous=True)
     rospy.Subscriber("/berxel_camera/rgb/rgb_raw", Image,
-                     image_callback,
-                     buff_size=30)
+                     image_callback)
     rospy.Subscriber("/berxel_camera/depth/depth_raw",
-                     Image, depth_callback,
-                     buff_size=30)
+                     Image, depth_callback)
     rospy.spin()
     cv2.destroyAllWindows()
 
