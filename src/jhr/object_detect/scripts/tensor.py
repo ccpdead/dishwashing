@@ -25,7 +25,9 @@ new_model = tf.saved_model.load(
     "/home/jhr/Program/TensorFlow/00-model/model/last_saved_model-3")
 model_signature = new_model.signatures["serving_default"]
 
-depth_image = np.zeros_like((640, 400), dtype=np.uint8)
+depth_image = None
+rgb_image=None
+
 # 创建锁对象，用于同步访问全局图像变量
 rgb_time=0
 depth_time = None
@@ -34,19 +36,22 @@ depth_time = None
 
 def compute(img):
     # start_time = time.time()
-    img = tf.convert_to_tensor(img, dtype=tf.float32)
-    img = tf.image.resize(img, [640, 640])
-    img = img / 255.0
-    dataset = tf.constant(img)  # IMG转化为Tensor
-    dataset = np.expand_dims(dataset, 0)  # 扩充维度
-    resout = model_signature(x=dataset)  # 模型预测
-    resout = resout["output_0"]
-    resout = np.array(resout)
-    resout[0][..., :4] *= [640, 400, 640, 400]
-    # end_time = time.time()
-    # execution_time = end_time - start_time
-    # print(f"compute time:{execution_time}")
-    return resout
+    if img is not None:
+        img = tf.convert_to_tensor(img, dtype=tf.float32)
+        img = tf.image.resize(img, [640, 640])
+        img = img / 255.0
+        dataset = tf.constant(img)  # IMG转化为Tensor
+        dataset = np.expand_dims(dataset, 0)  # 扩充维度
+        resout = model_signature(x=dataset)  # 模型预测
+        resout = resout["output_0"]
+        resout = np.array(resout)
+        resout[0][..., :4] *= [640, 400, 640, 400]
+        # end_time = time.time()
+        # execution_time = end_time - start_time
+        # print(f"compute time:{execution_time}")
+        return resout
+    else:
+        print("img is None")
 
 # 矩阵计算
 
@@ -133,7 +138,7 @@ def Positive_negative_detection(Rect, input_src):
                 else:
                     print("no data")
 
-                if input < output:
+                if input <= output:
                     cv2.putText(input_src, "back", (int(Rect[i, 0]), int(
                         Rect[i, 1])), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv2.LINE_4)
                 else:
@@ -195,7 +200,7 @@ def img_show(Rect, src):
 # 非极大值抑制
 
 
-def non_max_suppression(resout, frame, depth, conf_thres=0.6, iou_thres=0.7, mi=10):
+def non_max_suppression(resout, frame, depth, conf_thres=0.5, iou_thres=0.5, mi=10):
     max_wh = 7680
     max_nms = 30000
     max_det = 300
@@ -240,20 +245,20 @@ def non_max_suppression(resout, frame, depth, conf_thres=0.6, iou_thres=0.7, mi=
 
 def image_callback(msg):
     try:
-        start_time = time.time()
-        depth_input = np.copy(depth_image)
         # 使用cv_bridge将ROS图像消息转换为OpenCV格式
         bridge = CvBridge()
         cv_image = bridge.imgmsg_to_cv2(msg, "passthrough")
         frame = cv2.resize(cv_image, (640, 400),
                            interpolation=cv2.INTER_LINEAR)
-        resout = compute(frame)  # 模型预测
-        non_max_suppression(resout, frame, depth_input)  # 非极大值抑制
+        global rgb_image
+        rgb_image=frame
+        cv2.imshow("input_rgb",rgb_image)
+        # cv2.waitKey(1)
 
-        end_time = time.time()
-        execution_time = end_time - start_time
-        global rgb_time
-        rgb_time = execution_time
+        # end_time = time.time()
+        # execution_time = end_time - start_time
+        # global rgb_time
+        # rgb_time = execution_time
         # print(f"image_callback time:{execution_time}")
     except Exception as e:
         rospy.logerr(e)
@@ -270,22 +275,35 @@ def depth_callback(msg):
         global depth_image
         depth_image = cv_image
         cv2.imshow("input_depth", cv_image)
+        # cv2.waitKey(1)
 
-        end_time = time.time()
-        execution_time = end_time - start_time
-        time.sleep(rgb_time-execution_time-0.05)
+        # end_time = time.time()
+        # execution_time = end_time - start_time
+        # time.sleep(rgb_time-execution_time-0.05)
         # print(f"depth_callback time:{execution_time}")
     except Exception as e:
         rospy.logerr(e)
 
+def thread_job():
+    rospy.spin()
 
 def main():
     rospy.init_node("tensor_detect", anonymous=True)
+
+    add_thread=threading.Thread(target=thread_job)
+    add_thread.start()
+    # add_thread.join()
+
     rospy.Subscriber("/berxel_camera/rgb/rgb_raw", Image,
                      image_callback)
     rospy.Subscriber("/berxel_camera/depth/depth_raw",
                      Image, depth_callback)
-    rospy.spin()
+    time.sleep(1)
+    
+    while(1):
+        # time.sleep(0.001*20)
+        resout = compute(rgb_image)  # 模型预测
+        non_max_suppression(resout, rgb_image, depth_image)  # 非极大值抑制
     cv2.destroyAllWindows()
 
 
