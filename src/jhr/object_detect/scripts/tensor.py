@@ -17,20 +17,19 @@ print("Python 环境路径:", sys.prefix)
 print("Python 版本:", sys.version)
 print("Python 可执行文件路径:", sys.executable)
 print("--------------------------------")
-csv_file = "/home/jhr/depth.csv"
+
 
 name = {0: "cup", 1: "gcup", 2: "bowl", 3: "plate", 4: "spoon"}
+
 # 加载模型，读取签名
 new_model = tf.saved_model.load(
     "/home/jhr/Program/TensorFlow/00-model/model/last_saved_model-3")
 model_signature = new_model.signatures["serving_default"]
 
 depth_image = None
-rgb_image=None
+rgb_image = None
 
 # 创建锁对象，用于同步访问全局图像变量
-rgb_time=0
-depth_time = None
 # 图像加载与模型检测
 
 
@@ -46,9 +45,7 @@ def compute(img):
         resout = resout["output_0"]
         resout = np.array(resout)
         resout[0][..., :4] *= [640, 400, 640, 400]
-        # end_time = time.time()
-        # execution_time = end_time - start_time
-        # print(f"compute time:{execution_time}")
+
         return resout
     else:
         print("img is None")
@@ -67,7 +64,7 @@ def xywh2xyxy(x):
 # 正反检测
 
 
-def Positive_negative_detection(Rect, input_src):
+def Positive_negative_detection(Rect, input_src, input_rgb):
 
     if input_src is not None:
         for i in range(len(Rect)):
@@ -110,45 +107,48 @@ def Positive_negative_detection(Rect, input_src):
                 mask_image2 = cv2.bitwise_and(src, mask2)
 
                 # 计算内环像素平均值
-                max = mask_image.max()
-                min = mask_image.min()
                 count = 0
                 dep_sum = 0
+                input = 0
+                output = 0
+                max = 0
+                min = 0
+                if mask_image.any() and mask_image2.any():
+                    max = mask_image.max()
+                    min = mask_image.min()
 
-                mask = (mask_image > min) & (mask_image < max)
-                dep_sum = np.sum(mask_image[mask])
-                count = np.sum(mask)
-                if count > 0:
-                    input = int(dep_sum / count)
-                else:
-                    print("no data")
+                    mask = (mask_image > min) & (mask_image < max)
+                    dep_sum = np.sum(mask_image[mask])
+                    count = np.sum(mask)
+                    if count > 0:
+                        input = int(dep_sum / count)
+                    else:
+                        print("no data")
 
-                # 计算外环平均值
-                max = mask_image2.max()
-                min = mask_image2.min()
-                count = 0
-                dep_sum = 0
+                    # 计算外环平均值
+                    max = mask_image2.max()
+                    min = mask_image2.min()
+                    count = 0
+                    dep_sum = 0
 
-                mask = (mask_image2 > min) & (mask_image2 < max)
-                dep_sum = np.sum(mask_image2[mask])
-                count = np.sum(mask)
+                    mask = (mask_image2 > min) & (mask_image2 < max)
+                    dep_sum = np.sum(mask_image2[mask])
+                    count = np.sum(mask)
 
-                if count > 0:
-                    output = int(dep_sum / count)
-                else:
-                    print("no data")
-
-                if input <= output:
-                    cv2.putText(input_src, "back", (int(Rect[i, 0]), int(
-                        Rect[i, 1])), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv2.LINE_4)
-                else:
-                    cv2.putText(input_src, "forward", (int(Rect[i, 0]), int(
-                        Rect[i, 1])), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv2.LINE_4)
-
-                cv2.rectangle(input_src, (int(Rect[i, 0]), int(Rect[i, 1])), (int(
-                    Rect[i, 2]), int(Rect[i, 3])), (0, 255, 0), 1)
-
-        cv2.imshow("Positive_negative_detection", input_src)
+                    if count > 0:
+                        output = int(dep_sum / count)
+                    else:
+                        print("no data")
+                    if input != 0 or output != 0:
+                        if input < output:
+                            cv2.putText(input_rgb, "back", (int(Rect[i, 0])+5, int(
+                                Rect[i, 1])+20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_4)
+                        else:
+                            cv2.putText(input_rgb, "forward", (int(Rect[i, 0])+5, int(
+                                Rect[i, 1])+20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_4)
+        return input_rgb
+        # cv2.imshow("Positive_negative_detection", input_src)
+        # cv2.waitKey(30)
     else:
         print("depth is Zero")
 
@@ -193,7 +193,7 @@ def img_show(Rect, src):
                         2,
                         cv2.LINE_4)
         cv2.imshow("object_detect", src)
-        cv2.waitKey(1)
+        cv2.waitKey(60)
     else:
         print("rgb is Zero")
 
@@ -231,42 +231,25 @@ def non_max_suppression(resout, frame, depth, conf_thres=0.5, iou_thres=0.5, mi=
             boxes, scores, iou_threshold=iou_thres, max_output_size=15)
         i = i[:max_det]  # limit detections
         output[xi] = tf.gather(x, i)
-    img_show(output[0], frame)  # 显示图像
-    thread1=threading.Thread(target=Positive_negative_detection(output[0],depth))
-    thread1.start()
-    thread1.join()
-    # start_time = time.time()
-    # Positive_negative_detection(output[0], depth)
-    # time.sleep(0.001*30)
-    # end_time = time.time()
-    # execution_time = end_time - start_time
-    # print(f"detection time:{execution_time}")
+    img = Positive_negative_detection(output[0], depth, frame)
+    img_show(output[0], img)  # 显示图像
 
 
 def image_callback(msg):
     try:
-        # 使用cv_bridge将ROS图像消息转换为OpenCV格式
         bridge = CvBridge()
-        cv_image = bridge.imgmsg_to_cv2(msg, "passthrough")
+        cv_image = bridge.imgmsg_to_cv2(msg, "bgr8")
         frame = cv2.resize(cv_image, (640, 400),
                            interpolation=cv2.INTER_LINEAR)
         global rgb_image
-        rgb_image=frame
-        cv2.imshow("input_rgb",rgb_image)
-        # cv2.waitKey(1)
-
-        # end_time = time.time()
-        # execution_time = end_time - start_time
-        # global rgb_time
-        # rgb_time = execution_time
-        # print(f"image_callback time:{execution_time}")
+        rgb_image = frame
+        # cv2.imshow("input_rgb", rgb_image)
     except Exception as e:
         rospy.logerr(e)
 
 
 def depth_callback(msg):
     try:
-        start_time = time.time()
         bridge = CvBridge()
         cv_image = bridge.imgmsg_to_cv2(msg, "passthrough")
         # 将深度图像从浮点数类型转换为8位无符号整数类型
@@ -274,37 +257,32 @@ def depth_callback(msg):
         cv_image = cv_image.astype(np.uint8)
         global depth_image
         depth_image = cv_image
-        cv2.imshow("input_depth", cv_image)
-        # cv2.waitKey(1)
-
-        # end_time = time.time()
-        # execution_time = end_time - start_time
-        # time.sleep(rgb_time-execution_time-0.05)
-        # print(f"depth_callback time:{execution_time}")
+        # cv2.imshow("input_depth", cv_image)
     except Exception as e:
         rospy.logerr(e)
+
 
 def thread_job():
     rospy.spin()
 
+
 def main():
     rospy.init_node("tensor_detect", anonymous=True)
 
-    add_thread=threading.Thread(target=thread_job)
+    add_thread = threading.Thread(target=thread_job)
     add_thread.start()
-    # add_thread.join()
 
     rospy.Subscriber("/berxel_camera/rgb/rgb_raw", Image,
                      image_callback)
     rospy.Subscriber("/berxel_camera/depth/depth_raw",
                      Image, depth_callback)
     time.sleep(1)
-    
-    while(1):
-        # time.sleep(0.001*20)
+
+    while (1):
         resout = compute(rgb_image)  # 模型预测
         non_max_suppression(resout, rgb_image, depth_image)  # 非极大值抑制
-    cv2.destroyAllWindows()
+
+    # cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
