@@ -28,7 +28,11 @@ model_signature = new_model.signatures["serving_default"]
 
 depth_image = None
 rgb_image = None
-
+cup = 0
+gcup = 0
+bowl = 0
+plate = 0
+spoon = 0
 # 创建锁对象，用于同步访问全局图像变量
 # 图像加载与模型检测
 
@@ -68,15 +72,52 @@ def Positive_negative_detection(Rect, input_src, input_rgb):
 
     if input_src is not None:
         for i in range(len(Rect)):
+            train_depth=input_src[int(Rect[i, 1]):int(Rect[i, 3]), int(Rect[i, 0]):int(Rect[i, 2])]
+            train_rgb = input_rgb[int(Rect[i, 1]):int(Rect[i, 3]), int(Rect[i, 0]):int(Rect[i, 2])]
+            train_depth = cv2.resize(train_depth, (200, 200))
+            train_rgb = cv2.resize(train_rgb, (200, 200))
+            class_name = int(Rect[i, -1])
+            global cup, gcup, bowl, plate, spoon
+            if class_name == 0:  # cup
+                cup = cup+1
+                cv2.imwrite(
+                    "/home/jhr/Pictures/train/image/cup/{}.jpg".format(cup), train_rgb)
+                cv2.imwrite(
+                    "/home/jhr/Pictures/train/depth/cup/{}.jpg".format(cup), train_depth)
+            elif class_name == 1:  # gcup
+                gcup = gcup+1
+                cv2.imwrite(
+                    "/home/jhr/Pictures/train/image/gcup/{}.jpg".format(gcup), train_rgb)
+                cv2.imwrite(
+                    "/home/jhr/Pictures/train/depth/gcup/{}.jpg".format(gcup), train_depth)
+            elif class_name == 2:  # bowl
+                bowl = bowl+1
+                cv2.imwrite(
+                    "/home/jhr/Pictures/train/image/bowl/{}.jpg".format(bowl), train_rgb)
+                cv2.imwrite(
+                    "/home/jhr/Pictures/train/depth/bowl/{}.jpg".format(bowl), train_depth)
+            elif class_name == 3:  # plate
+                plate = plate+1
+                cv2.imwrite(
+                    "/home/jhr/Pictures/train/image/plate/{}.jpg".format(plate), train_rgb)
+                cv2.imwrite(
+                    "/home/jhr/Pictures/train/depth/plate/{}.jpg".format(plate), train_depth)
+            elif class_name == 4:  # spoon
+                spoon = spoon+1
+                cv2.imwrite(
+                    "/home/jhr/Pictures/train/image/spoon/{}.jpg".format(spoon), train_rgb)
+                cv2.imwrite(
+                    "/home/jhr/Pictures/train/depth/spoon/{}.jpg".format(spoon), train_depth)
+
             if int(Rect[i, -1]) == 2 or int(Rect[i, -1]) == 3:
                 x = int(Rect[i, 0])
                 y = int(Rect[i, 1])
                 x2 = int(Rect[i, 2])
                 y2 = int(Rect[i, 3])
 
-                src = input_src[y:y2, x:x2]
 
                 # 创建掩膜
+                src = input_src[y:y2, x:x2]
                 mask = np.zeros_like(src, dtype=np.uint8)
                 mask2 = np.zeros_like(src, dtype=np.uint8)
 
@@ -139,16 +180,14 @@ def Positive_negative_detection(Rect, input_src, input_rgb):
                         output = int(dep_sum / count)
                     else:
                         print("no data")
-                    if input != 0 or output != 0:
-                        if input < output:
-                            cv2.putText(input_rgb, "back", (int(Rect[i, 0])+5, int(
-                                Rect[i, 1])+20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_4)
-                        else:
-                            cv2.putText(input_rgb, "forward", (int(Rect[i, 0])+5, int(
-                                Rect[i, 1])+20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_4)
+                    # if input != 0 or output != 0:
+                    #     if input < output:
+                    #         cv2.putText(input_rgb, "back", (int(Rect[i, 0])+5, int(
+                    #             Rect[i, 1])-30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_4)
+                    #     else:
+                    #         cv2.putText(input_rgb, "forward", (int(Rect[i, 0])+5, int(
+                    #             Rect[i, 1])-30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_4)
         return input_rgb
-        # cv2.imshow("Positive_negative_detection", input_src)
-        # cv2.waitKey(30)
     else:
         print("depth is Zero")
 
@@ -279,6 +318,7 @@ def main():
     time.sleep(1)
 
     while (1):
+        time.sleep(3)
         resout = compute(rgb_image)  # 模型预测
         non_max_suppression(resout, rgb_image, depth_image)  # 非极大值抑制
 
