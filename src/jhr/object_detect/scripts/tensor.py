@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 import csv
 import cv2
 import numpy as np
@@ -28,15 +28,10 @@ model_signature = new_model.signatures["serving_default"]
 
 depth_image = None
 rgb_image = None
-cup = 0
-gcup = 0
-bowl = 0
-plate = 0
-spoon = 0
+
+
 # 创建锁对象，用于同步访问全局图像变量
 # 图像加载与模型检测
-
-
 def compute(img):
     # start_time = time.time()
     if img is not None:
@@ -49,14 +44,11 @@ def compute(img):
         resout = resout["output_0"]
         resout = np.array(resout)
         resout[0][..., :4] *= [640, 400, 640, 400]
-
         return resout
     else:
         print("img is None")
 
 # 矩阵计算
-
-
 def xywh2xyxy(x):
     y = np.copy(x)
     y[..., 0] = x[..., 0] - x[..., 2] / 2.0  # top left x
@@ -65,56 +57,58 @@ def xywh2xyxy(x):
     y[..., 3] = x[..., 1] + x[..., 3] / 2.0  # bottom right y
     return y
 
+#0-cup,1-gcup,2-bowl,3-plate,4-spoon
+def class_detection(Rect):
+    output_Rect = np.empty([len(Rect),6],dtype=float)
+    for i in range(len(Rect)):
+        x = int(Rect[i, 0])
+        y = int(Rect[i, 1])
+        x2 = int(Rect[i, 2])
+        y2 = int(Rect[i, 3])
+        class_name = int(Rect[i,-1])#类别
+        judge_class=0
+        if(class_name==0 or class_name==2 or class_name==3):
+            max_length = max(int(x2-x),int(y2-y))#计算最大边长
+            if class_name == 0:#cup
+                if max_length>55 and max_length<65:
+                    judge_class=0
+                elif max_length>70 and max_length<80:
+                    judge_class=2
+                elif max_length>105 and max_length<120:
+                    judge_class=3
+                    
+            elif class_name == 2:#bowl
+                if max_length>55 and max_length<65:
+                    judge_class=0
+                elif max_length>70 and max_length<80:
+                    judge_class=2
+                elif max_length>105 and max_length<120:
+                    judge_class=3
+                    
+            elif class_name == 3:#plate
+                if max_length>55 and max_length<65:
+                    judge_class=0
+                elif max_length>70 and max_length<80:
+                    judge_class=2
+                elif max_length>105 and max_length<120:
+                    judge_class=3
+
+        for x in range(0,4):
+            output_Rect[i,x]=int(Rect[i, x])
+        output_Rect[i,-1] = judge_class #修改Rect
+        output_Rect[i,-2]=Rect[i,-2]
+    return output_Rect
+
+
 # 正反检测
-
-
 def Positive_negative_detection(Rect, input_src, input_rgb):
-
     if input_src is not None:
         for i in range(len(Rect)):
-            train_depth=input_src[int(Rect[i, 1]):int(Rect[i, 3]), int(Rect[i, 0]):int(Rect[i, 2])]
-            train_rgb = input_rgb[int(Rect[i, 1]):int(Rect[i, 3]), int(Rect[i, 0]):int(Rect[i, 2])]
-            train_depth = cv2.resize(train_depth, (200, 200))
-            train_rgb = cv2.resize(train_rgb, (200, 200))
-            class_name = int(Rect[i, -1])
-            global cup, gcup, bowl, plate, spoon
-            if class_name == 0:  # cup
-                cup = cup+1
-                cv2.imwrite(
-                    "/home/jhr/Pictures/train/image/cup/{}.jpg".format(cup), train_rgb)
-                cv2.imwrite(
-                    "/home/jhr/Pictures/train/depth/cup/{}.jpg".format(cup), train_depth)
-            elif class_name == 1:  # gcup
-                gcup = gcup+1
-                cv2.imwrite(
-                    "/home/jhr/Pictures/train/image/gcup/{}.jpg".format(gcup), train_rgb)
-                cv2.imwrite(
-                    "/home/jhr/Pictures/train/depth/gcup/{}.jpg".format(gcup), train_depth)
-            elif class_name == 2:  # bowl
-                bowl = bowl+1
-                cv2.imwrite(
-                    "/home/jhr/Pictures/train/image/bowl/{}.jpg".format(bowl), train_rgb)
-                cv2.imwrite(
-                    "/home/jhr/Pictures/train/depth/bowl/{}.jpg".format(bowl), train_depth)
-            elif class_name == 3:  # plate
-                plate = plate+1
-                cv2.imwrite(
-                    "/home/jhr/Pictures/train/image/plate/{}.jpg".format(plate), train_rgb)
-                cv2.imwrite(
-                    "/home/jhr/Pictures/train/depth/plate/{}.jpg".format(plate), train_depth)
-            elif class_name == 4:  # spoon
-                spoon = spoon+1
-                cv2.imwrite(
-                    "/home/jhr/Pictures/train/image/spoon/{}.jpg".format(spoon), train_rgb)
-                cv2.imwrite(
-                    "/home/jhr/Pictures/train/depth/spoon/{}.jpg".format(spoon), train_depth)
-
             if int(Rect[i, -1]) == 2 or int(Rect[i, -1]) == 3:
                 x = int(Rect[i, 0])
                 y = int(Rect[i, 1])
                 x2 = int(Rect[i, 2])
                 y2 = int(Rect[i, 3])
-
 
                 # 创建掩膜
                 src = input_src[y:y2, x:x2]
@@ -142,7 +136,7 @@ def Positive_negative_detection(Rect, input_src, input_rgb):
                            int(radius/6)*3,
                            (255, 255, 255),
                            -1)
-
+                                
                 mask_image = cv2.bitwise_and(src, mask)
                 mask2 = mask2-mask  # 对像素进行算术运算
                 mask_image2 = cv2.bitwise_and(src, mask2)
@@ -180,20 +174,19 @@ def Positive_negative_detection(Rect, input_src, input_rgb):
                         output = int(dep_sum / count)
                     else:
                         print("no data")
-                    # if input != 0 or output != 0:
-                    #     if input < output:
-                    #         cv2.putText(input_rgb, "back", (int(Rect[i, 0])+5, int(
-                    #             Rect[i, 1])-30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_4)
-                    #     else:
-                    #         cv2.putText(input_rgb, "forward", (int(Rect[i, 0])+5, int(
-                    #             Rect[i, 1])-30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_4)
+                    if input != 0 or output != 0:
+                        if input < output:
+                            cv2.putText(input_rgb, "back", (int(Rect[i, 0])+55, int(
+                                Rect[i, 1])-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_4)
+                        else:
+                            cv2.putText(input_rgb, "forward", (int(Rect[i, 0])+55, int(
+                                Rect[i, 1])-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_4)
+                    
         return input_rgb
     else:
         print("depth is Zero")
 
-# 矩形框显示
-
-
+# 数据显示
 def img_show(Rect, src):
     if src is not None:
         for i in range(len(Rect)):
@@ -202,7 +195,7 @@ def img_show(Rect, src):
             y = int(Rect[i, 1])
             x2 = int(Rect[i, 2])
             y2 = int(Rect[i, 3])
-
+            cv2.putText(src,"({})".format(max(int(x2-x),int(y2-y))),(int(Rect[i,0]),int(Rect[i,1]+20)),cv2.FONT_HERSHEY_SIMPLEX,0.6,(0,0,200),2,cv2.LINE_4)
             # 绘制圆
             radius = min(int((x2-x)/2), int((y2-y)/2))
             for r in range(1, 7, 1):
@@ -218,7 +211,7 @@ def img_show(Rect, src):
                         name[int(Rect[i, -1])],
                         (x, y - 10),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
+                        0.6,
                         (0, 0, 255),
                         2,
                         cv2.LINE_4)
@@ -227,7 +220,7 @@ def img_show(Rect, src):
                         "{:.2}%".format(Rect[i, -2]),
                         (x, y - 25),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
+                        0.5,
                         (0, 255, 255),
                         2,
                         cv2.LINE_4)
@@ -237,8 +230,6 @@ def img_show(Rect, src):
         print("rgb is Zero")
 
 # 非极大值抑制
-
-
 def non_max_suppression(resout, frame, depth, conf_thres=0.5, iou_thres=0.5, mi=10):
     max_wh = 7680
     max_nms = 30000
@@ -270,10 +261,13 @@ def non_max_suppression(resout, frame, depth, conf_thres=0.5, iou_thres=0.5, mi=
             boxes, scores, iou_threshold=iou_thres, max_output_size=15)
         i = i[:max_det]  # limit detections
         output[xi] = tf.gather(x, i)
-    img = Positive_negative_detection(output[0], depth, frame)
-    img_show(output[0], img)  # 显示图像
 
+    #正反检测
+    img = Positive_negative_detection(class_detection(output[0]), depth, frame)
+    # 显示图像
+    img_show(class_detection(output[0]), img)  
 
+#image回调函数
 def image_callback(msg):
     try:
         bridge = CvBridge()
@@ -286,13 +280,13 @@ def image_callback(msg):
     except Exception as e:
         rospy.logerr(e)
 
-
+#depth回调函数
 def depth_callback(msg):
     try:
         bridge = CvBridge()
         cv_image = bridge.imgmsg_to_cv2(msg, "passthrough")
         # 将深度图像从浮点数类型转换为8位无符号整数类型
-        cv_image = cv2.normalize(cv_image, None, 0, 1000, cv2.NORM_MINMAX)
+        cv_image = cv2.normalize(cv_image, None, 0, 1024, cv2.NORM_MINMAX)
         cv_image = cv_image.astype(np.uint8)
         global depth_image
         depth_image = cv_image
@@ -318,7 +312,7 @@ def main():
     time.sleep(1)
 
     while (1):
-        time.sleep(3)
+        time.sleep(0.1)
         resout = compute(rgb_image)  # 模型预测
         non_max_suppression(resout, rgb_image, depth_image)  # 非极大值抑制
 
