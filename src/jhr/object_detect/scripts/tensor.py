@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python3
 import csv
 import cv2
 import numpy as np
@@ -58,6 +58,9 @@ def xywh2xyxy(x):
     return y
 
 #0-cup,1-gcup,2-bowl,3-plate,4-spoon
+#cup 55-65
+#bowl 70-80
+#plate 105-120
 def class_detection(Rect):
     output_Rect = np.empty([len(Rect),6],dtype=float)
     for i in range(len(Rect)):
@@ -67,12 +70,13 @@ def class_detection(Rect):
         y2 = int(Rect[i, 3])
         class_name = int(Rect[i,-1])#类别
         judge_class=0
+        #如果检测到是cup，bowl，以及plate，根据尺寸进行第二次判断
         if(class_name==0 or class_name==2 or class_name==3):
             max_length = max(int(x2-x),int(y2-y))#计算最大边长
             if class_name == 0:#cup
                 if max_length>55 and max_length<65:
                     judge_class=0
-                elif max_length>70 and max_length<80:
+                elif max_length>66 and max_length<88:
                     judge_class=2
                 elif max_length>105 and max_length<120:
                     judge_class=3
@@ -92,7 +96,9 @@ def class_detection(Rect):
                     judge_class=2
                 elif max_length>105 and max_length<120:
                     judge_class=3
-
+        else:
+            judge_class = class_name
+        #返回位置，种类，以及置信度
         for x in range(0,4):
             output_Rect[i,x]=int(Rect[i, x])
         output_Rect[i,-1] = judge_class #修改Rect
@@ -312,11 +318,11 @@ def main():
     time.sleep(1)
 
     while (1):
-        time.sleep(0.1)
+        time.sleep(0.03)
         resout = compute(rgb_image)  # 模型预测
         non_max_suppression(resout, rgb_image, depth_image)  # 非极大值抑制
 
-    # cv2.destroyAllWindows()
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
